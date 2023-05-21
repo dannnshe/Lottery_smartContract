@@ -8,21 +8,38 @@
 
 pragma solidity ^0.8.7;
 
+
+error Lottery_NotEnoughETHEntered();
+
 contract Lottery {
-    uint256 private s_entranceFee;
+    // Contract State
+    uint256 private immutable i_entranceFee;
+    address payable[] private s_player;
 
     constructor(uint256 entranceFee){
-        s_entranceFee = entranceFee;
+        i_entranceFee = entranceFee;
     }
 
 
     
     // set a USD price entrance fee
-    function enterLottery(){    
+    function enterLottery() public payable{    
+        if(msg.value < i_entranceFee){
+            revert Lottery_NotEnoughETHEntered();}
+        s_player.push(payable(msg.sender));
 
     } 
     // function pickWinner(){
 
     // }
+
+    function getEntranceFee() public view returns(uint256){
+        return i_entranceFee;
+    }
+
+    function getPlayer(uint256 index) public view returns(address){
+        return s_player[index];
+
+    }
 
 }
