@@ -10,6 +10,7 @@ pragma solidity ^0.8.7;
 
 
 error Lottery_NotEnoughETHEntered();
+error 
 
 contract Lottery {
     // Contract State
