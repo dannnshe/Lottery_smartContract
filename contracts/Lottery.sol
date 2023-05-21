@@ -8,14 +8,24 @@
 
 pragma solidity ^0.8.7;
 
+//@title A title that should describe the contract/interface
+// @author Dan She
+//@notice Explain to an end user what this does
+//dev Explain to a developer any extra details
+
+import "@chainlink/contracts/src/v0.8/interfaces/VRFCoordinatorV2Interface.sol";
+import "@chainlink/contracts/src/v0.8/VRFConsumerBaseV2.sol";
 
 error Lottery_NotEnoughETHEntered();
-error 
 
 contract Lottery {
     // Contract State
     uint256 private immutable i_entranceFee;
     address payable[] private s_player;
+
+
+
+    event LotteryEntered(address indexed player);
 
     constructor(uint256 entranceFee){
         i_entranceFee = entranceFee;
@@ -29,10 +39,14 @@ contract Lottery {
             revert Lottery_NotEnoughETHEntered();}
         s_player.push(payable(msg.sender));
 
-    } 
-    // function pickWinner(){
+        emit LotteryEntered(msg.sender);
 
-    // }
+    } 
+
+    //1. request random number 2. Derive winner from random number. 2 step transaction to avoid brute force attack
+    function pickWinner() external
+
+    }
 
     function getEntranceFee() public view returns(uint256){
         return i_entranceFee;
