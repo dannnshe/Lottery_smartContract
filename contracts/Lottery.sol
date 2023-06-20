@@ -20,6 +20,8 @@ contract Lottery is VRFConsumerBaseV2, KeeperCompatibleInterface {
 
     //  State Variable
 
+    //unint set contant uint amount to entry Lottery
+
     uint256 private immutable i_entranceFee;
     address payable[] private s_player;
     VRFCoordinatorV2Interface private immutable i_vrfCoordinatorV2;
@@ -88,7 +90,14 @@ contract Lottery is VRFConsumerBaseV2, KeeperCompatibleInterface {
      */
     function checkUpkeep(
         bytes calldata /*checkData*/
-    ) external overide returns (bool upkeepNeeded, bytes memory /*performData*/);
+    ) external overide returns (bool upkeepNeeded, bytes memory /*performData*/){
+        bool isOpen= LotteryState.OPEN == s_raffleState;
+        bool hasPlayers= s_players.length > 0;
+        bool timePassed= ((block.timestamp - s_lastTimeStamp)> i_interval)
+        bool hasBalance= address(this).balance > 0;
+        upkeepNeeded= (isOpen && hasPlayers && timePassed && hasBalance);
+        return (upkeepNeeded,"0x0")
+    };
 
     //1. request random number 2. Derive winner from random number. 2 step transaction to avoid brute force attack
     function requestWinner() external {
@@ -135,13 +144,23 @@ contract Lottery is VRFConsumerBaseV2, KeeperCompatibleInterface {
         return s_recentWinner;
     }
 
-    function getPlayers() {}
+    function getPlayers(uint index) public view returns (uints) {
+        return s_players[index];
+    }
 
-    function getLasTimeStamp() {}
+    function getLasTimeStamp() public view returns (uint256) {
+        return s_lastTimeStamp;
+    }
 
-    function getInterval() {}
+    function getInterval() public view returns (uint256) {
+        return i_interval;
+    }
 
-    function getEntranceFee() {}
+    function getEntranceFee() public view returns (unit256) {
+        return i_entranceFee;
+    }
 
-    function getNumberOfPlayers() {}
+    function getNumberOfPlayers() public view returns (uint256) {
+        return s_players.length;
+    }
 }
