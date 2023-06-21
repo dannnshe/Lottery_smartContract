@@ -5,10 +5,12 @@ pragma solidity ^0.8.7;
 import "@chainlink/contracts/src/v0.8/interfaces/VRFCoordinatorV2Interface.sol";
 import "@chainlink/contracts/src/v0.8/VRFConsumerBaseV2.sol";
 import "@chainlink/contracts/src/v0.8/interfaces/KeeperCompatibleInterface.sol";
+// import "@chainlink/contracts/src/v0.8/interfaces/AggreatorV3Interface.sol";
 
 error Lottery__NotEnoughETHEntered();
 error Lottery__TransferFailed();
 error Lottery_NotOpen();
+error Lottery_UpkeepNotNeeded();
 
 contract Lottery is VRFConsumerBaseV2, KeeperCompatibleInterface {
     /*Types declarations*/
@@ -21,6 +23,7 @@ contract Lottery is VRFConsumerBaseV2, KeeperCompatibleInterface {
     //  State Variable
 
     //unint set contant uint amount to entry Lottery
+    //Estimated gas cost in USD. use coinmarket_api-key
 
     uint256 private immutable i_entranceFee;
     address payable[] private s_player;
@@ -34,6 +37,10 @@ contract Lottery is VRFConsumerBaseV2, KeeperCompatibleInterface {
     //Lottery Variable
     address private s_recentWinner;
     LotteryState private s_lotteryState;
+
+    //Converter Variable
+
+    uint256 private constant minimumUSD = 50 * 10 ** 18;
 
     event LotteryEntered(address indexed player);
     event RequestedLotteryWinner(uint256 indexed requestedId);
@@ -90,14 +97,14 @@ contract Lottery is VRFConsumerBaseV2, KeeperCompatibleInterface {
      */
     function checkUpkeep(
         bytes calldata /*checkData*/
-    ) external overide returns (bool upkeepNeeded, bytes memory /*performData*/){
-        bool isOpen= LotteryState.OPEN == s_raffleState;
-        bool hasPlayers= s_players.length > 0;
-        bool timePassed= ((block.timestamp - s_lastTimeStamp)> i_interval)
-        bool hasBalance= address(this).balance > 0;
-        upkeepNeeded= (isOpen && hasPlayers && timePassed && hasBalance);
-        return (upkeepNeeded,"0x0")
-    };
+    ) external overide returns (bool upkeepNeeded, bytes memory /*performData*/) {
+        bool isOpen = LotteryState.OPEN == s_raffleState;
+        bool hasPlayers = s_players.length > 0;
+        bool timePassed = ((block.timestamp - s_lastTimeStamp) > i_interval);
+        bool hasBalance = address(this).balance > 0;
+        upkeepNeeded = (isOpen && hasPlayers && timePassed && hasBalance);
+        return (upkeepNeeded, "0x0");
+    }
 
     //1. request random number 2. Derive winner from random number. 2 step transaction to avoid brute force attack
     function requestWinner() external {
@@ -121,8 +128,9 @@ contract Lottery is VRFConsumerBaseV2, KeeperCompatibleInterface {
         uint256 indexOfWinner = randomWords[0] % s_player.length;
         address payable recentWinner = s_player[indexOfWinner];
         s_recentWinner = recentWinner;
+        s_players = new address payable[](0);
         s_lotteryState = LotteryState.OPEN;
-        s_players = new address payable[](0); //reset player's array after winner is determined.
+        s_lastTimeStamp = block.timestamp;
         (bool sucess, ) = recentWinner.call{value: address(this).balance}("");
 
         if (!success) {
