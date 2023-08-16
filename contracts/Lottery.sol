@@ -1,174 +1,152 @@
+/*  1. Enter lottery by paying some amount
+2. Pick a random winner (varifiably random through Chainlink Randoness)
+3. Winner automatically selected at specific time interval through Chainlink Keepers*/
+
+// Improvements.
+//1. use USD instead of eth. Coinmarket api. uint256 private constant minimumUSD = 50 * 10 ** 18;
+//2. Collect fees for operating and function for withdrawal by owner
+//
+
+// Questions
+// 1. Are interface functions ment to be override and doesn't need a vitual keywood on function
+// 2. How can use performData. Have checkupkeep do other stuff
+// 3. What does byte do.
+
 // SPDX-License-Identifier: MIT
 
 pragma solidity ^0.8.7;
 
 import "@chainlink/contracts/src/v0.8/interfaces/VRFCoordinatorV2Interface.sol";
 import "@chainlink/contracts/src/v0.8/VRFConsumerBaseV2.sol";
-import "@chainlink/contracts/src/v0.8/interfaces/KeeperCompatibleInterface.sol";
-// import "@chainlink/contracts/src/v0.8/interfaces/AggreatorV3Interface.sol";
+import "@chainlink/contracts/src/v0.8/interfaces/AutomationCompatibleInterface.sol";
 
-error Lottery__NotEnoughETHEntered();
+/* Errors */
+error Lottery__NotEnoughFeeEntered(uint256 i_entranceFee);
 error Lottery__TransferFailed();
-error Lottery_NotOpen();
-error Lottery_UpkeepNotNeeded();
+error Lottery__NotOpen();
 
-contract Lottery is VRFConsumerBaseV2, KeeperCompatibleInterface {
+// /* @title Lottery Contract
+// @Author Dan She
+// @notice
+// @ This implements the Chainlink VRF Version 2 and Chinlink Keepers
+//  */
+
+contract Lottery is VRFConsumerBaseV2, AutomationCompatibleInterface {
     /*Types declarations*/
 
     enum LotteryState {
         OPEN,
         CALCULATING
-    } // 0=OPEN, 1= CALCULATING
-
-    //  State Variable
-
-    //unint set contant uint amount to entry Lottery
-    //Estimated gas cost in USD. use coinmarket_api-key
+    }
+    /*   State variables
+    Chainlink VRF Variables */
 
     uint256 private immutable i_entranceFee;
-    address payable[] private s_player;
-    VRFCoordinatorV2Interface private immutable i_vrfCoordinatorV2;
+    address[] private s_players;
+    VRFCoordinatorV2Interface private immutable i_vrfCoordinator;
     bytes32 private immutable i_gasLane;
     uint64 private immutable i_subscriptionId;
     uint32 private immutable i_callbackGasLimit;
     uint16 private constant REQUEST_CONFIRMATIONS = 3;
     uint32 private constant NUM_WORDS = 1;
 
-    //Lottery Variable
-    address private s_recentWinner;
+    /* Lottery Variables */
+
+    address private s_recentWinners;
     LotteryState private s_lotteryState;
+    uint256 private s_lastTimeStamp;
+    uint private immutable i_interval;
 
-    //Converter Variable
-
-    uint256 private constant minimumUSD = 50 * 10 ** 18;
+    /* Events */
 
     event LotteryEntered(address indexed player);
-    event RequestedLotteryWinner(uint256 indexed requestedId);
-    event WinnerPicked(address indexed recentWinner);
+    event RequstedLotteryWinner(uint256 indexed requestId);
+    event WinnersPicked(address indexed winner);
 
+    /* Functions */
     constructor(
         address vrfCoordinatorV2,
         uint256 entranceFee,
-        bytes32 gasLane,
-        uint32 callbackGasLimit
+        bytes32 gasLine,
+        uint64 subscriptionId,
+        uint32 callbackGasLimit,
+        uint256 interval
     ) VRFConsumerBaseV2(vrfCoordinatorV2) {
         i_entranceFee = entranceFee;
-        i_vrfCondinator = VRFCoordinatorV2Interface(vrfCoordinatorV2);
-        i_gasLane = gasLane;
-        i_subsciptionId = subsciptionId;
+        i_vrfCoordinator = VRFCoordinatorV2Interface(vrfCoordinatorV2); //wrapping vrfCoordinatorV2 in VRFCoordinatorV2Interface allows your contract to interact with the vrfCoordinatorV2 contract using the functions defined in VRFCoordinatorV2Interface.
+        i_gasLane = gasLine;
+        i_subscriptionId = subscriptionId;
         i_callbackGasLimit = callbackGasLimit;
-        s_lotteryState = LotteryState.OPEN; // or RaffleState(0)
+        s_lotteryState = LotteryState.OPEN;
+        s_lastTimeStamp = block.timestamp;
+        i_interval = interval;
     }
 
-    // set a USD price entrance fee
     function enterLottery() public payable {
         if (msg.value < i_entranceFee) {
-            revert Lottery__NotEnoughETHEntered();
+            revert Lottery__NotEnoughFeeEntered(uint256(i_entranceFee));
         }
         if (s_lotteryState != LotteryState.OPEN) {
-            revert Lottery_NotOpen();
+            revert Lottery__NotOpen();
         }
-        s_player.push(payable(msg.sender));
-
+        s_players.push(payable(msg.sender)); //msg.sender isn't payable, need to wrap by typecast payble
+        // Emit an event when we update a dynamic array or mapping
         emit LotteryEntered(msg.sender);
     }
 
-    /**
-     * @notice method that is simulated by the keepers to see if any work actually
-     * needs to be performed. This method does does not actually need to be
-     * executable, and since it is only ever simulated it can consume lots of gas.
-     * @dev To ensure that it is never called, you may want to add the
-     * cannotExecute modifier from KeeperBase to your implementation of this
-     * method.
-     * @param checkData specified in the upkeep registration so it is always the
-     * same for a registered upkeep. This can easily be broken down into specific
-     * arguments using `abi.decode`, so multiple upkeeps can be registered on the
-     * same contract and easily differentiated by the contract.
-     * @return upkeepNeeded boolean to indicate whether the keeper should call
-     * performUpkeep or not.
-     * @return performData bytes that the keeper should call performUpkeep with, if
-     * upkeep is needed. If you would like to encode data to decode later, try
-     * `abi.encode`.
-     * THis is the function that the Chainlink Keeper nodes call, they look for the 'upKeepNeeded' to return true.
-     * The following should be true in order to return true. 1. Our time interval should have passed.
-     * 2. Lottery should have at least 1 player and have ETH.
-     * 3. Our subcription is funded with LINK
-     * 4. Our lottery should be in an 'open' state.
-     */
+    /*This is the function that Chainlink Keepers node call, they look for return 'true'*/
     function checkUpkeep(
         bytes calldata /*checkData*/
-    ) external overide returns (bool upkeepNeeded, bytes memory /*performData*/) {
-        bool isOpen = LotteryState.OPEN == s_raffleState;
-        bool hasPlayers = s_players.length > 0;
-        bool timePassed = ((block.timestamp - s_lastTimeStamp) > i_interval);
+    ) external override returns (bool upKeepNeeded, bytes memory /*performData*/) {
+        bool isOpen = (LotteryState.OPEN == s_lotteryState);
+        bool timePassed = (block.timestamp - s_lastTimeStamp) > i_interval;
+        bool hasPlayers = (s_players.length > 0);
         bool hasBalance = address(this).balance > 0;
-        upkeepNeeded = (isOpen && hasPlayers && timePassed && hasBalance);
-        return (upkeepNeeded, "0x0");
+        upKeepNeeded = (isOpen && timePassed && hasPlayers && hasBalance);
     }
 
-    //1. request random number 2. Derive winner from random number. 2 step transaction to avoid brute force attack
-    function requestWinner() external {
-        //this function is called by chainlink network.
+    function performUpkeep(bytes calldata performData) external;
+
+    function requestRandomWords() external {
         s_lotteryState = LotteryState.CALCULATING;
-        uint356 requestId = i_vrfCordinator.requestRandomWords( //return a unit256 requestId
-            i_gasLane, //gasLane
-            s_subsciptionId,
+        uint requestId = i_vrfCoordinator.requestRandomWords(
+            //1. request random number 2. Derive winner from random number. 2 step transaction to avoid brute force attack
+            i_gasLane, //gasLine
+            i_subscriptionId,
             REQUEST_CONFIRMATIONS,
             i_callbackGasLimit,
             NUM_WORDS
         );
-        emit RequestedLotteryWinner(requestId);
+        emit RequstedLotteryWinner(requestId);
     }
 
     function fulfillRandomWords(
-        uint256 /*requestId*/,
+        uint256 /*requestID*/,
         uint256[] memory randomWords
     ) internal override {
-        // use Module % operation find winner in s_player. 202 % 10. What's doesn't divid evenly into 202. 2 in the array is winner
-        uint256 indexOfWinner = randomWords[0] % s_player.length;
-        address payable recentWinner = s_player[indexOfWinner];
-        s_recentWinner = recentWinner;
-        s_players = new address payable[](0);
+        uint256 indexOfWinner = randomWords[0] % s_players.length;
+        address recentWinner = payable(s_players[indexOfWinner]);
+        s_recentWinners = recentWinner;
         s_lotteryState = LotteryState.OPEN;
-        s_lastTimeStamp = block.timestamp;
-        (bool sucess, ) = recentWinner.call{value: address(this).balance}("");
-
+        s_players = new address payable[](0); //reset s_players array
+        (bool success, ) = recentWinner.call{value: address(this).balance}("");
         if (!success) {
             revert Lottery__TransferFailed();
         }
-
-        emit WinnerPicked(recentWinner);
+        emit WinnersPicked(recentWinner);
     }
+
+    /* Getter Functions*/
 
     function getEntranceFee() public view returns (uint256) {
         return i_entranceFee;
     }
 
     function getPlayer(uint256 index) public view returns (address) {
-        return s_player[index];
-    }
-
-    function getRecentWinner() public view returns (address) {
-        return s_recentWinner;
-    }
-
-    function getPlayers(uint index) public view returns (uints) {
         return s_players[index];
     }
 
-    function getLasTimeStamp() public view returns (uint256) {
-        return s_lastTimeStamp;
-    }
-
-    function getInterval() public view returns (uint256) {
-        return i_interval;
-    }
-
-    function getEntranceFee() public view returns (unit256) {
-        return i_entranceFee;
-    }
-
-    function getNumberOfPlayers() public view returns (uint256) {
-        return s_players.length;
+    function getRecentWinner() public view returns (address) {
+        return s_recentWinners;
     }
 }

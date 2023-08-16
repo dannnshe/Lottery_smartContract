@@ -4,7 +4,8 @@ coverage
 coverage.json
 typechain 
 deployments
-
+.prettierrc
+tsconfig.
 #Hardhat file
 
 cache
