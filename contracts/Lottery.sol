@@ -5,12 +5,15 @@
 // Improvements.
 //1. use USD instead of eth. Coinmarket api. uint256 private constant minimumUSD = 50 * 10 ** 18;
 //2. Collect fees for operating and function for withdrawal by owner
-//
+//3. Use bytes calldata and checkdata for abi.encode.
 
 // Questions
 // 1. Are interface functions ment to be override and doesn't need a vitual keywood on function
 // 2. How can use performData. Have checkupkeep do other stuff
 // 3. What does byte do.
+// 4. you don't need 'virtual' keywood in inference to 'override' (performData)
+
+//Notes. deploy starts at 14:57
 
 // SPDX-License-Identifier: MIT
 
@@ -24,12 +27,13 @@ import "@chainlink/contracts/src/v0.8/interfaces/AutomationCompatibleInterface.s
 error Lottery__NotEnoughFeeEntered(uint256 i_entranceFee);
 error Lottery__TransferFailed();
 error Lottery__NotOpen();
+error Lottery__UpKeepNoteNeeded(uint currentBalance, uint numPlayers, uint256 LotteryState);
 
-// /* @title Lottery Contract
-// @Author Dan She
-// @notice
-// @ This implements the Chainlink VRF Version 2 and Chinlink Keepers
-//  */
+/** @title Lottery Contract
+ * @author Dan She
+ * @notice
+ * @dev implements the Chainlink VRF Version 2 and Chinlink Keepers
+ */
 
 contract Lottery is VRFConsumerBaseV2, AutomationCompatibleInterface {
     /*Types declarations*/
@@ -65,7 +69,7 @@ contract Lottery is VRFConsumerBaseV2, AutomationCompatibleInterface {
 
     /* Functions */
     constructor(
-        address vrfCoordinatorV2,
+        address vrfCoordinatorV2, //contract address
         uint256 entranceFee,
         bytes32 gasLine,
         uint64 subscriptionId,
@@ -96,8 +100,8 @@ contract Lottery is VRFConsumerBaseV2, AutomationCompatibleInterface {
 
     /*This is the function that Chainlink Keepers node call, they look for return 'true'*/
     function checkUpkeep(
-        bytes calldata /*checkData*/
-    ) external override returns (bool upKeepNeeded, bytes memory /*performData*/) {
+        bytes memory /*checkData*/
+    ) public override returns (bool upKeepNeeded, bytes memory /*performData*/) {
         bool isOpen = (LotteryState.OPEN == s_lotteryState);
         bool timePassed = (block.timestamp - s_lastTimeStamp) > i_interval;
         bool hasPlayers = (s_players.length > 0);
@@ -105,7 +109,16 @@ contract Lottery is VRFConsumerBaseV2, AutomationCompatibleInterface {
         upKeepNeeded = (isOpen && timePassed && hasPlayers && hasBalance);
     }
 
-    function performUpkeep(bytes calldata performData) external;
+    function performUpkeep(bytes calldata /*performData*/) external override {
+        (bool upKeepNeeded, ) = checkUpkeep("");
+        if (!upKeepNeeded) {
+            revert Lottery__UpKeepNoteNeeded(
+                address(this).balance,
+                s_players.length,
+                uint256(s_lotteryState)
+            );
+        }
+    }
 
     function requestRandomWords() external {
         s_lotteryState = LotteryState.CALCULATING;
@@ -129,6 +142,7 @@ contract Lottery is VRFConsumerBaseV2, AutomationCompatibleInterface {
         s_recentWinners = recentWinner;
         s_lotteryState = LotteryState.OPEN;
         s_players = new address payable[](0); //reset s_players array
+        s_lastTimeStamp = block.timestamp;
         (bool success, ) = recentWinner.call{value: address(this).balance}("");
         if (!success) {
             revert Lottery__TransferFailed();
@@ -148,5 +162,17 @@ contract Lottery is VRFConsumerBaseV2, AutomationCompatibleInterface {
 
     function getRecentWinner() public view returns (address) {
         return s_recentWinners;
+    }
+
+    function getLotteryState() public view returns (LotteryState) {
+        return s_lotteryState;
+    }
+
+    function getNumberOfPlayers() public view returns (uint256) {
+        return s_players.length;
+    }
+
+    function getLastestTimeStamp() public view returns (uint256) {
+        return s_lastTimeStamp;
     }
 }
