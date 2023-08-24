@@ -6,6 +6,7 @@
 //1. use USD instead of eth. Coinmarket api. uint256 private constant minimumUSD = 50 * 10 ** 18;
 //2. Collect fees for operating and function for withdrawal by owner
 //3. Use bytes calldata and checkdata for abi.encode.
+//4. How will I be able to update this contract. 
 
 // Questions
 // 1. Are interface functions ment to be override and doesn't need a vitual keywood on function
@@ -100,7 +101,7 @@ contract Lottery is VRFConsumerBaseV2, AutomationCompatibleInterface {
 
     /*This is the function that Chainlink Keepers node call, they look for return 'true'*/
     function checkUpkeep(
-        bytes memory /*checkData*/
+        bytes memory /*checkData*/   
     ) public override returns (bool upKeepNeeded, bytes memory /*performData*/) {
         bool isOpen = (LotteryState.OPEN == s_lotteryState);
         bool timePassed = (block.timestamp - s_lastTimeStamp) > i_interval;
